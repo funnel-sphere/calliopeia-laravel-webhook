@@ -1,0 +1,68 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Laravel ${{ matrix.laravel-label }} / PHP ${{ matrix.php }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - laravel-label: "12"
+            laravel: "^12.0"
+            testbench: "^10.0"
+            phpunit: "^11.5"
+            php: "8.2"
+          - laravel-label: "12"
+            laravel: "^12.0"
+            testbench: "^10.0"
+            phpunit: "^12.0"
+            php: "8.5"
+          - laravel-label: "13"
+            laravel: "^13.0"
+            testbench: "^11.0"
+            phpunit: "^12.0"
+            php: "8.3"
+          - laravel-label: "13"
+            laravel: "^13.0"
+            testbench: "^11.0"
+            phpunit: "^12.0"
+            php: "8.5"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@2.37.2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+          tools: composer:v2
+
+      - name: Resolve matrix dependencies
+        run: >-
+          composer update
+          --with="laravel/framework:${{ matrix.laravel }}"
+          --with="orchestra/testbench:${{ matrix.testbench }}"
+          --with="phpunit/phpunit:${{ matrix.phpunit }}"
+          --with-all-dependencies
+          --prefer-dist
+          --no-interaction
+
+      - name: Validate package metadata
+        run: composer validate --strict --no-check-publish
+
+      - name: Run tests
+        run: composer test
+
+      - name: Audit resolved dependencies
+        run: composer audit --locked --no-interaction

@@ -1,0 +1,66 @@
+{
+    "name": "funnelsphere/calliopeia-laravel-webhook",
+    "description": "Reference Laravel receiver for Calliopeia result webhooks",
+    "type": "library",
+    "license": "MIT",
+    "homepage": "https://github.com/funnel-sphere/calliopeia-laravel-webhook",
+    "keywords": [
+        "calliopeia",
+        "laravel",
+        "webhook"
+    ],
+    "support": {
+        "issues": "https://github.com/funnel-sphere/calliopeia-laravel-webhook/issues",
+        "source": "https://github.com/funnel-sphere/calliopeia-laravel-webhook"
+    },
+    "require": {
+        "php": "^8.2",
+        "ext-json": "*",
+        "ext-mbstring": "*",
+        "ext-openssl": "*",
+        "illuminate/bus": "^12.0 || ^13.0",
+        "illuminate/cache": "^12.0 || ^13.0",
+        "illuminate/database": "^12.0 || ^13.0",
+        "illuminate/events": "^12.0 || ^13.0",
+        "illuminate/http": "^12.0 || ^13.0",
+        "illuminate/queue": "^12.0 || ^13.0",
+        "illuminate/routing": "^12.0 || ^13.0",
+        "illuminate/support": "^12.0 || ^13.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^10.0 || ^11.0",
+        "phpunit/phpunit": "^11.5 || ^12.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "FunnelSphere\\CalliopeiaWebhook\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "FunnelSphere\\CalliopeiaWebhook\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "FunnelSphere\\CalliopeiaWebhook\\CalliopeiaWebhookServiceProvider"
+            ]
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "check": [
+            "@php -l src/CalliopeiaWebhookServiceProvider.php",
+            "@test"
+        ]
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "php-http/discovery": false
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
