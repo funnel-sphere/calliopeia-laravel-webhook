@@ -13,6 +13,12 @@ final class CalliopeiaWebhookServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        $this->mergeConfigFrom(__DIR__.'/../config/calliopeia.php', 'calliopeia');
+        $this->app->bind(\FunnelSphere\CalliopeiaWebhook\Client\CalliopeiaClient::class, function ($app) {
+            return new \FunnelSphere\CalliopeiaWebhook\Client\CalliopeiaClient(
+                $app->make(\Illuminate\Http\Client\Factory::class), (array) config('calliopeia')
+            );
+        });
         $this->mergeConfigFrom(__DIR__.'/../config/calliopeia-webhook.php', 'calliopeia-webhook');
 
         $this->app->bind(WebhookAcceptancePolicy::class, function ($app): WebhookAcceptancePolicy {
@@ -29,6 +35,9 @@ final class CalliopeiaWebhookServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->publishes([
+            __DIR__.'/../config/calliopeia.php' => config_path('calliopeia.php'),
+        ], 'calliopeia-config');
         $this->loadMigrationsFrom(__DIR__.'/../database/migrations');
 
         $this->publishes([

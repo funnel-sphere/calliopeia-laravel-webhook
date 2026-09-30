@@ -1,8 +1,9 @@
-# Calliopeia Laravel Webhook Receiver
+# Calliopeia Laravel API Client / Webhook Receiver
 
 [![Tests](https://github.com/funnel-sphere/calliopeia-laravel-webhook/actions/workflows/tests.yml/badge.svg)](https://github.com/funnel-sphere/calliopeia-laravel-webhook/actions/workflows/tests.yml)
 
-Calliopeiaの解析結果WebhookをLaravelで安全に受信するための参照パッケージです。Calliopeia送信実装の次の契約に対応します。
+Calliopeiaの解析投入・結果取得と、解析結果Webhookの受信をLaravelへ組み込むパッケージです。
+既存Webhookの設定・namespace・受信処理はそのまま利用できます。Webhookは次の契約に対応します。
 
 - `SUMMARY_CALLBACK_V1` / `EVENT_ENVELOPE_V1`
 - `BEARER` / `SIGNED_JWT` / `RSA_SIGNATURE` / `BODY_ACCESS_TOKEN` / `NONE`
@@ -12,7 +13,88 @@ Calliopeiaの解析結果WebhookをLaravelで安全に受信するための参�
 
 標準連携には`SUMMARY_CALLBACK_V1 + BEARER`を推奨します。
 
-このリポジトリはWebhook受信側だけを実装し、Calliopeia本体、モデル処理、実データ、認証情報は含みません。
+このリポジトリにCalliopeia本体、モデル処理、実データ、認証情報は含みません。
+
+## APIクライアント（0.1.0以降）
+
+APIクライアントとWebhook受信機能を0.1.0で提供します。既存のWebhook設定はそのまま利用できます。
+
+```bash
+php artisan vendor:publish --tag=calliopeia-config
+```
+
+```dotenv
+CALLIOPEIA_GRAPHQL_URL=https://<AppSyncのホスト>/graphql
+CALLIOPEIA_APPSYNC_API_KEY=<環境の公開AppSyncキー>
+CALLIOPEIA_PULL_URL=https://<結果取得APIのホスト>
+CALLIOPEIA_API_KEY=<jobs:createとjobs:readを持つテナントAPIキー>
+```
+
+送信側APIキーは`CALLIOPEIA_WEBHOOK_TOKEN`とは別です。サーバーの環境変数・Secret Managerで
+管理し、ブラウザーやiOSへ渡さないでください。Laravel側はサーバー用APIキー認証を包みます。
+利用者のメールOTPログインはiOS SDKの`CalliopeiaSession`を使います。
+
+```php
+use FunnelSphere\CalliopeiaWebhook\Client\CalliopeiaClient;
+
+$api = app(CalliopeiaClient::class);
+$accepted = $api->submitAudio(
+    path: storage_path('app/recordings/take.m4a'),
+    idempotencyKey: $savedRequestId,
+    audioSeconds: $duration,
+    options: [
+        'generateIndividualKartes' => false,
+        'passthrough' => ['external_record_id' => $recordId],
+    ],
+);
+$jobId = $accepted['job']['id'];
+$result = $api->getJob($jobId);
+$visits = $api->getVisits($jobId);
+```
+
+既定は`quality_batch`、個別カルテOff、BGM除去Offです。Onにする場合だけ
+`generateIndividualKartes => true`を指定します。Offでも録音全体のカルテ・
+接客の区切り・書き起こし・追加質問を利用できます。別プロファイルにはこれらの
+品質優先専用オプションを自動付加しません。音声は署名付きURLへストリーム送信します。
+
+投入の通信再試行では同じidempotencyKeyを使います。アップロード済みticketを保存して
+`invokeAudioJob`だけ再試行することもできます。署名付きuploadUrl自体はログへ出さず、
+保持期間を短くしてください。
+
+```php
+$ticket = $api->createAudioUpload('take.m4a', 'audio/mp4');
+$api->uploadAudio($localPath, $ticket);
+$accepted = $api->invokeAudioJob(
+    $ticket, 'take.m4a', filesize($localPath), $savedRequestId, $duration,
+    ['responseMode' => 'WEBHOOK', 'webhookEndpointId' => $endpointId],
+);
+```
+
+### 書き起こしと追加質問
+
+```php
+$provisional = $api->getProvisionalTranscript($jobId);
+$offer = $api->getFormattedTranscript($jobId);
+// OFFERの金額を利用者へ提示し、同意を取得したときだけ実行する。
+$formatted = $api->purchaseFormattedTranscript($jobId, $offer['quoteToken'], $userAcceptedCharge);
+
+$question = $api->askQuestion(
+    jobId: $jobId, question: '修理の完了予定は？', requestId: $savedQuestionRequestId,
+    parentQuestionId: null, sectionIndex: null,
+);
+$answer = $api->getQuestion($jobId, $question['question']['questionId']);
+$history = $api->getQuestions($jobId, $nextToken);
+```
+
+HTTP 202は処理中です。レスポンスをそのまま返すため、ジョブと質問の`status`、
+書き起こしの`state`を確認し、時間を置いて取得してください。暗黙の再投入や
+課金同意は行いません。追加質問で個別カルテを生成したり、整形版を自動購入したりしません。
+`sectionIndex`は省略時が録音全体、`0`が最初の接客です。
+
+HTTP失敗は`CalliopeiaApiException`となり、`statusCode`、`requestId`、
+`retryAfterSeconds`を参照できます。例外にHTTP本文・トークンは含めません。
+ネットワーク断の例外はLaravel HTTP clientの例外です。自動再送は行わないため、
+投入・質問の冪等キーを保持してアプリ側で再試行してください。
 
 ## 導入
 
@@ -20,7 +102,7 @@ Packagist登録前はGitHubリポジトリをComposerのVCS repositoryとして�
 
 ```bash
 composer config repositories.calliopeia-webhook vcs https://github.com/funnel-sphere/calliopeia-laravel-webhook
-composer require funnelsphere/calliopeia-laravel-webhook:dev-main
+composer require funnelsphere/calliopeia-laravel-webhook:^0.1
 php artisan vendor:publish --tag=calliopeia-webhook-config
 php artisan migrate
 ```
