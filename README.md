@@ -15,19 +15,24 @@ Calliopeiaの解析投入・結果取得と、解析結果Webhookの受信をLar
 
 このリポジトリにCalliopeia本体、モデル処理、実データ、認証情報は含みません。
 
+実装を動かしながら試す場合は、[Laravel連携サンプル](samples/laravel/README.md)を利用してください。
+音声送信・同じジョブへの再試行・結果の暗号化保存・Webhook受信確認を含みます。
+
 ## 導入
 
 Packagist登録前はGitHubリポジトリをComposerのVCS repositoryとして追加します。
 
 ```bash
 composer config repositories.calliopeia-webhook vcs https://github.com/funnel-sphere/calliopeia-laravel-webhook
-composer require funnelsphere/calliopeia-laravel-webhook:^0.1
+composer require funnelsphere/calliopeia-laravel-webhook:^0.1 --with-all-dependencies
 php artisan vendor:publish --tag=calliopeia-config
 php artisan vendor:publish --tag=calliopeia-webhook-config
 php artisan migrate
 ```
 
 Laravel 12（PHP 8.2以降）とLaravel 13（PHP 8.3以降）を対象にしています。
+0.1.xはGuzzle 7を使用します。Guzzle 8が入った新規Laravel 13アプリでも依存を解決できるよう
+上記では`--with-all-dependencies`を指定しています。既存アプリではComposerの変更内容も確認してください。
 パッケージのService ProviderはComposer discoveryで自動登録されます。
 APIクライアントは`config/calliopeia.php`、Webhook受信は`config/calliopeia-webhook.php`を使います。
 

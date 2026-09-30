@@ -64,5 +64,8 @@ jobs:
       - name: Run tests
         run: composer test
 
+      - name: Check sample PHP syntax
+        run: find samples/laravel -name '*.php' -print0 | xargs -0 -n 1 php -l
+
       - name: Audit resolved dependencies
         run: composer audit --locked --no-interaction

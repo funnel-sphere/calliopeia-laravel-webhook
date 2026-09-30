@@ -1,3 +1,9 @@
 /vendor/
 /.phpunit.cache/
 /composer.lock
+/samples/**/.env
+/samples/**/.env.*
+!/samples/**/.env.example
+/samples/**/vendor/
+/samples/**/storage/
+/samples/**/*.sqlite
