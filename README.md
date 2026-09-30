@@ -15,13 +15,25 @@ Calliopeiaの解析投入・結果取得と、解析結果Webhookの受信をLar
 
 このリポジトリにCalliopeia本体、モデル処理、実データ、認証情報は含みません。
 
+## 導入
+
+Packagist登録前はGitHubリポジトリをComposerのVCS repositoryとして追加します。
+
+```bash
+composer config repositories.calliopeia-webhook vcs https://github.com/funnel-sphere/calliopeia-laravel-webhook
+composer require funnelsphere/calliopeia-laravel-webhook:^0.1
+php artisan vendor:publish --tag=calliopeia-config
+php artisan vendor:publish --tag=calliopeia-webhook-config
+php artisan migrate
+```
+
+Laravel 12（PHP 8.2以降）とLaravel 13（PHP 8.3以降）を対象にしています。
+パッケージのService ProviderはComposer discoveryで自動登録されます。
+APIクライアントは`config/calliopeia.php`、Webhook受信は`config/calliopeia-webhook.php`を使います。
+
 ## APIクライアント（0.1.0以降）
 
 APIクライアントとWebhook受信機能を0.1.0で提供します。既存のWebhook設定はそのまま利用できます。
-
-```bash
-php artisan vendor:publish --tag=calliopeia-config
-```
 
 ```dotenv
 CALLIOPEIA_GRAPHQL_URL=https://<AppSyncのホスト>/graphql
@@ -48,17 +60,29 @@ $accepted = $api->submitAudio(
     ],
 );
 $jobId = $accepted['job']['id'];
+// 後続のQueue jobや定期処理で取得する。受付成功だけでは解析は完了していない。
 $result = $api->getJob($jobId);
-$visits = $api->getVisits($jobId);
+$status = $result['job']['status'];
+if ($status === 'COMPLETED') {
+    $summary = $result['job']['result'];
+    $visits = $api->getVisits($jobId);
+    $sections = $visits['visits']['visits']['sections'];
+}
+// 処理中なら時間を置いて同じjobIdを取得する。失敗状態ならアプリ側で扱う。
 ```
 
-既定は`quality_batch`、個別カルテOff、BGM除去Offです。Onにする場合だけ
+既定は`quality_batch`、個別カルテOff、BGM除去Off、結果取得方式は`ASYNC`です。Onにする場合だけ
 `generateIndividualKartes => true`を指定します。Offでも録音全体のカルテ・
 接客の区切り・書き起こし・追加質問を利用できます。別プロファイルにはこれらの
 品質優先専用オプションを自動付加しません。音声は署名付きURLへストリーム送信します。
 
-投入の通信再試行では同じidempotencyKeyを使います。アップロード済みticketを保存して
-`invokeAudioJob`だけ再試行することもできます。署名付きuploadUrl自体はログへ出さず、
+`$savedRequestId`はアプリ側で保存した一意な文字列（1〜128バイト）、
+`$duration`は録音の秒数です。各ジョブのIDも保存してください。
+`submitAudio`はアップロードから投入までを一度実行する便利メソッドです。
+投入後に応答が不明になった場合の再送には、**同じアップロード済みticketと同じidempotencyKey**が必要です。
+再送するアプリでは下の分割手順を使い、ticketを保持して`invokeAudioJob`だけを再試行してください。
+`submitAudio`を再び呼ぶと別のobjectKeyが発行され、同じ冪等キーでは衝突します。
+署名付きuploadUrl自体はログへ出さず、
 保持期間を短くしてください。
 
 ```php
@@ -76,7 +100,9 @@ $accepted = $api->invokeAudioJob(
 $provisional = $api->getProvisionalTranscript($jobId);
 $offer = $api->getFormattedTranscript($jobId);
 // OFFERの金額を利用者へ提示し、同意を取得したときだけ実行する。
-$formatted = $api->purchaseFormattedTranscript($jobId, $offer['quoteToken'], $userAcceptedCharge);
+if ($offer['state'] === 'OFFER' && $userAcceptedCharge) {
+    $formatted = $api->purchaseFormattedTranscript($jobId, $offer['quoteToken'], true);
+}
 
 $question = $api->askQuestion(
     jobId: $jobId, question: '修理の完了予定は？', requestId: $savedQuestionRequestId,
@@ -93,21 +119,9 @@ HTTP 202は処理中です。レスポンスをそのまま返すため、ジョ
 
 HTTP失敗は`CalliopeiaApiException`となり、`statusCode`、`requestId`、
 `retryAfterSeconds`を参照できます。例外にHTTP本文・トークンは含めません。
+設定不足や入力不正は`InvalidArgumentException`、
 ネットワーク断の例外はLaravel HTTP clientの例外です。自動再送は行わないため、
 投入・質問の冪等キーを保持してアプリ側で再試行してください。
-
-## 導入
-
-Packagist登録前はGitHubリポジトリをComposerのVCS repositoryとして追加します。
-
-```bash
-composer config repositories.calliopeia-webhook vcs https://github.com/funnel-sphere/calliopeia-laravel-webhook
-composer require funnelsphere/calliopeia-laravel-webhook:^0.1
-php artisan vendor:publish --tag=calliopeia-webhook-config
-php artisan migrate
-```
-
-Laravel 12（PHP 8.2以降）とLaravel 13（PHP 8.3以降）を対象にしています。パッケージのService ProviderはComposer discoveryで自動登録されます。
 
 ## 最小設定
 
@@ -278,7 +292,20 @@ composer install
 composer test
 ```
 
-テストは正常・失敗要約、イベントEnvelope、Bearer、本文トークン、RSA署名、署名JWT、重複、改変衝突、暗号化保存、404ポリシー、Queue再試行を対象にします。
+開発テストは正常・失敗要約、イベントEnvelope、Bearer、本文トークン、RSA署名、署名JWT、重複、改変衝突、暗号化保存、404ポリシー、Queue再試行を対象にします。
+APIクライアントの開発テストはHTTPをfakeしており、実サービスの接続確認にはなりません。
+
+実サービスへの統合確認では、自分の環境の接続設定と検証用音声を使い、
+`submitAudio`または`createAudioUpload → uploadAudio → invokeAudioJob`で投入して、
+次を確認してください。処理料金が発生する環境では通常の利用枠を使います。
+
+1. 同じ冪等キーでの再送が同じjob IDを返すこと。
+2. そのjobが完了し、`getJob`の結果と`getProvisionalTranscript`の内容が入力音声に対応すること。
+3. `getVisits`が個別カルテOffを維持し、`askQuestion → getQuestion`で完了した回答と引用を取得できること。
+4. Webhookを使う場合は実際のEndpointへ通知し、ReceiptのDB保存、Queue処理、同一イベント再送後も業務処理が重複しないこと。
+
+保存した実結果をlocalhostへ再送する確認は、Laravel受信側のHTTP・DB・Queueの確認です。
+Calliopeiaから公開Endpointまでの配信確認は別途必要です。
 
 ## License
 
